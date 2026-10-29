@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/ai_service.dart';
+import '../services/offline_queue_service.dart';
 
 class ReportsProvider extends ChangeNotifier {
   List<ProblemReport> _reports = [];
@@ -123,6 +125,27 @@ class ReportsProvider extends ChangeNotifier {
     await _saveReports();
   }
 
+  Future<void> syncOfflineReportSent({
+    required String id,
+    required AiAnalysisResult analysis,
+    required DateTime sentAt,
+  }) async {
+    final idx = _reports.indexWhere((r) => r.id == id);
+    if (idx != -1) {
+      final report = _reports[idx];
+      report.status = ReportStatus.sent;
+      report.currentStage = ReportStage.classified;
+      report.detectedProblem = analysis.detectedProblem;
+      report.aiCategory = analysis.category;
+      report.targetDepartment = analysis.targetDepartment;
+      report.aiConfidence = analysis.confidence;
+      report.urgency = analysis.urgency;
+      report.sentAt = sentAt;
+      notifyListeners();
+      await _saveReports();
+    }
+  }
+
   Future<void> updateReportStatus(String id, ReportStatus newStatus, ReportStage newStage) async {
     final idx = _reports.indexWhere((r) => r.id == id);
     if (idx != -1) {
@@ -143,6 +166,7 @@ class ReportsProvider extends ChangeNotifier {
     }
     notifyListeners();
     await _saveReports();
+    await OfflineQueueService.instance.removeFromQueue(id);
   }
 
   Future<void> _saveReports() async {

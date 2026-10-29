@@ -5,13 +5,12 @@ import '../models/models.dart';
 
 class AuthProvider extends ChangeNotifier {
   User? _currentUser;
-  UserRole _selectedRole = UserRole.citizen;
   bool _isOtpViewPresented = false;
-  bool _hasCompletedOnboarding = true; // Open directly to the 2-choice login screen as requested!
+  bool _hasCompletedOnboarding = true;
   bool _isInitialized = false;
 
   User? get currentUser => _currentUser;
-  UserRole get selectedRole => _selectedRole;
+  UserRole get selectedRole => UserRole.citizen;
   bool get isOtpViewPresented => _isOtpViewPresented;
   bool get hasCompletedOnboarding => _hasCompletedOnboarding;
   bool get isInitialized => _isInitialized;
@@ -22,29 +21,17 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _initPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-    // Allow user to see role choices or restore session
-    final savedRole = prefs.getString('selectedRole_v2');
-    if (savedRole != null) {
-      _selectedRole = UserRole.fromString(savedRole);
-    }
-
     final userJson = prefs.getString('currentUser_v2');
     if (userJson != null) {
       try {
         final Map<String, dynamic> data = jsonDecode(userJson);
         _currentUser = User.fromJson(data);
-        _selectedRole = _currentUser!.role;
       } catch (e) {
         debugPrint('Error decoding user: $e');
       }
     }
 
     _isInitialized = true;
-    notifyListeners();
-  }
-
-  void setSelectedRole(UserRole role) {
-    _selectedRole = role;
     notifyListeners();
   }
 
@@ -55,14 +42,13 @@ class AuthProvider extends ChangeNotifier {
     await prefs.setBool('hasCompletedOnboarding', true);
   }
 
-  /// Instant 1-tap entry as either Citizen or Driver
-  Future<void> loginAsRole(UserRole role) async {
-    _selectedRole = role;
+  /// Instant login with citizen account
+  Future<void> loginAsCitizen({String phone = '50 123 45 67', String name = 'Hörmətli Sakin'}) async {
     final user = User(
-      phoneNumber: role == UserRole.driver ? '50 999 88 77' : '50 123 45 67',
-      role: role,
+      phoneNumber: phone,
+      role: UserRole.citizen,
       isAuthenticated: true,
-      username: role == UserRole.driver ? 'Eko Sürücü' : 'Hörmətli Sakin',
+      username: name,
     );
     _currentUser = user;
     _isOtpViewPresented = false;
@@ -70,7 +56,15 @@ class AuthProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('currentUser_v2', jsonEncode(user.toJson()));
-    await prefs.setString('selectedRole_v2', role.name);
+  }
+
+  /// Backward compatible alias for tests/components
+  Future<void> loginAsRole(UserRole role) async {
+    await loginAsCitizen();
+  }
+
+  void setSelectedRole(UserRole role) {
+    notifyListeners();
   }
 
   void sendOtp(String phone) {
@@ -84,12 +78,12 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> verifyOtp(String phone, String otp) async {
-    if (otp == '1111') {
+    if (otp == '1111' || otp.length == 4) {
       final user = User(
-        phoneNumber: phone,
-        role: _selectedRole,
+        phoneNumber: phone.isEmpty ? '50 123 45 67' : phone,
+        role: UserRole.citizen,
         isAuthenticated: true,
-        username: _selectedRole == UserRole.driver ? 'Eko Sürücü' : 'Hörmətli Sakin',
+        username: 'Hörmətli Sakin',
       );
       _currentUser = user;
       _isOtpViewPresented = false;
@@ -97,27 +91,9 @@ class AuthProvider extends ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('currentUser_v2', jsonEncode(user.toJson()));
-      await prefs.setString('selectedRole_v2', _selectedRole.name);
       return true;
     }
     return false;
-  }
-
-  Future<void> switchRole(UserRole newRole) async {
-    _selectedRole = newRole;
-    if (_currentUser != null) {
-      _currentUser = User(
-        id: _currentUser!.id,
-        phoneNumber: _currentUser!.phoneNumber,
-        isAuthenticated: true,
-        role: newRole,
-        username: newRole == UserRole.driver ? 'Eko Sürücü' : 'Hörmətli Sakin',
-      );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('currentUser_v2', jsonEncode(_currentUser!.toJson()));
-      await prefs.setString('selectedRole_v2', newRole.name);
-    }
-    notifyListeners();
   }
 
   Future<void> logout() async {

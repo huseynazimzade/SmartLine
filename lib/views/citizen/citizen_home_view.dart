@@ -6,6 +6,7 @@ import '../../models/models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/reports_provider.dart';
 import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import 'citizen_settings_view.dart';
 import 'photo_problem_view.dart';
@@ -25,12 +26,14 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
   LatLng _userPosition = const LatLng(40.3725, 49.8400); // Default Baku Nizami St.
   String _userAddress = 'Nizami küçəsi, Səbail rayonu, Bakı';
   bool _isLoadingLocation = false;
-  ProblemReport? _selectedReportOnMap;
 
   @override
   void initState() {
     super.initState();
     _fetchLocation();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkMapFocusOnResume();
+    });
   }
 
   Future<void> _fetchLocation() async {
@@ -42,7 +45,13 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
         _userAddress = loc.address;
         _isLoadingLocation = false;
       });
-      _mapController.move(_userPosition, 14.5);
+    }
+  }
+
+  void _checkMapFocusOnResume() {
+    final reportsProvider = Provider.of<ReportsProvider>(context, listen: false);
+    if (reportsProvider.mapFocusCoordinate != null) {
+      _openMapSheet(focusCoordinate: reportsProvider.mapFocusCoordinate, report: reportsProvider.selectedReport);
     }
   }
 
@@ -99,7 +108,7 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const PhotoProblemView()),
-                ).then((_) => _checkMapFocus());
+                );
               },
             ),
             const SizedBox(height: 12),
@@ -115,7 +124,7 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const VoiceProblemView()),
-                ).then((_) => _checkMapFocus());
+                );
               },
             ),
             const SizedBox(height: 12),
@@ -131,7 +140,7 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const TextProblemView()),
-                ).then((_) => _checkMapFocus());
+                );
               },
             ),
             const SizedBox(height: 20),
@@ -139,18 +148,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
         ),
       ),
     );
-  }
-
-  void _checkMapFocus() {
-    final reportsProvider = Provider.of<ReportsProvider>(context, listen: false);
-    if (reportsProvider.mapFocusCoordinate != null) {
-      _mapController.move(reportsProvider.mapFocusCoordinate!, 15.5);
-      if (reportsProvider.selectedReport != null) {
-        setState(() {
-          _selectedReportOnMap = reportsProvider.selectedReport;
-        });
-      }
-    }
   }
 
   Widget _submissionOption({
@@ -225,6 +222,177 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
     );
   }
 
+  /// Interactive Map Modal Sheet to view city map with reported problems
+  void _openMapSheet({LatLng? focusCoordinate, ProblemReport? report}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final reportsProvider = Provider.of<ReportsProvider>(context);
+          final allReports = reportsProvider.reports;
+          final targetCoord = focusCoordinate ?? _userPosition;
+
+          final markers = <Marker>[
+            // User current location marker
+            Marker(
+              point: _userPosition,
+              width: 50,
+              height: 50,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  shape: BoxShape.circle,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+                    ],
+                  ),
+                  child: const Icon(Icons.person_pin_circle_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+
+            // Report markers
+            for (final rep in allReports)
+              Marker(
+                point: rep.coordinate,
+                width: 48,
+                height: 48,
+                child: GestureDetector(
+                  onTap: () {
+                    _showReportDetailsModal(rep);
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: rep.isResolved
+                            ? AppColors.primary
+                            : (rep.status == ReportStatus.pending
+                                ? AppColors.warning
+                                : (rep.status == ReportStatus.unresolved
+                                    ? const Color(0xFFE11D48)
+                                    : AppColors.truckBlue)),
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (rep.isResolved ? AppColors.primary : AppColors.warning)
+                              .withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Icon(
+                        rep.isResolved
+                            ? Icons.check_circle_rounded
+                            : (rep.status == ReportStatus.pending
+                                ? Icons.cloud_off_rounded
+                                : Icons.warning_amber_rounded),
+                        size: 22,
+                        color: rep.isResolved ? AppColors.primary : AppColors.critical,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ];
+
+          return FractionallySizedBox(
+            heightFactor: 0.88,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                child: Stack(
+                  children: [
+                    FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: targetCoord,
+                        initialZoom: 14.5,
+                        minZoom: 11.0,
+                        maxZoom: 18.0,
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.smartline.app',
+                        ),
+                        MarkerLayer(markers: markers),
+                      ],
+                    ),
+
+                    // Top Drag Bar & Close
+                    SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.1),
+                                    blurRadius: 8,
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.map_rounded, color: AppColors.primary, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Bakı Şəhər Xəritəsi',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.textDark,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            FloatingActionButton.small(
+                              heroTag: 'close_map_sheet',
+                              backgroundColor: Colors.white,
+                              foregroundColor: AppColors.textDark,
+                              elevation: 4,
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showReportDetailsModal(ProblemReport report) {
     showModalBottomSheet(
       context: context,
@@ -254,7 +422,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Resolution Badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -282,8 +449,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
                     ],
                   ),
                 ),
-
-                // Close
                 IconButton(
                   icon: const Icon(Icons.close_rounded, color: Colors.grey),
                   onPressed: () => Navigator.pop(ctx),
@@ -300,80 +465,12 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
               '№: ${report.id} • ${report.address}',
               style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
             ),
-            const Divider(height: 24),
-
-            // Current Stage
-            const Text(
-              'Cari Aşama / Mərhələ:',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted),
+            const SizedBox(height: 10),
+            Text(
+              report.description,
+              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
             ),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.linear_scale_rounded, color: AppColors.truckBlue, size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          report.currentStage.label,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textDark),
-                        ),
-                        Text(
-                          report.currentStage.description,
-                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Target Department
-            Row(
-              children: [
-                const Icon(Icons.apartment_rounded, size: 18, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Aidiyyəti Qurum: ${report.targetDepartment}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ReportsHistoryView()),
-                  );
-                },
-                icon: const Icon(Icons.history_rounded),
-                label: const Text('Bütün müraciət tarixçəsini aç'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -386,101 +483,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
     final reportsProvider = Provider.of<ReportsProvider>(context);
     final allReports = reportsProvider.reports;
     final activeCount = allReports.where((r) => !r.isResolved).length;
-
-    // Build Map Markers
-    final markers = <Marker>[
-      // User GPS Location Marker
-      Marker(
-        point: _userPosition,
-        width: 60,
-        height: 60,
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.25),
-                shape: BoxShape.circle,
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(7),
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.person_pin_circle_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-            ),
-            const Text(
-              'Siz',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textDark,
-                backgroundColor: Colors.white70,
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      // Problem Markers on the Map!
-      for (final report in allReports)
-        Marker(
-          point: report.coordinate,
-          width: 52,
-          height: 52,
-          child: GestureDetector(
-            onTap: () {
-              setState(() => _selectedReportOnMap = report);
-              _showReportDetailsModal(report);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: report.isResolved ? AppColors.primary : AppColors.critical,
-                  width: 2.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: (report.isResolved ? AppColors.primary : AppColors.critical)
-                        .withValues(alpha: 0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Icon(
-                  report.isResolved
-                      ? Icons.check_circle_rounded
-                      : (report.inputType == ReportInputType.photo
-                          ? Icons.camera_alt_rounded
-                          : report.inputType == ReportInputType.voice
-                              ? Icons.mic_rounded
-                              : Icons.warning_amber_rounded),
-                  size: 24,
-                  color: report.isResolved ? AppColors.primary : AppColors.critical,
-                ),
-              ),
-            ),
-          ),
-        ),
-    ];
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -533,7 +535,7 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
           ],
         ),
         actions: [
-          // 3-dots Menu Button on the top right
+          // 3-dots Menu Button on top right
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded, color: AppColors.textDark, size: 28),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -548,8 +550,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
                   context,
                   MaterialPageRoute(builder: (_) => const CitizenSettingsView()),
                 );
-              } else if (value == 'switch_driver') {
-                auth.switchRole(UserRole.driver);
               } else if (value == 'logout') {
                 auth.logout();
               }
@@ -583,16 +583,6 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
               ),
               const PopupMenuDivider(),
               const PopupMenuItem(
-                value: 'switch_driver',
-                child: Row(
-                  children: [
-                    Icon(Icons.local_shipping_rounded, color: AppColors.fabricPurple, size: 20),
-                    SizedBox(width: 12),
-                    Text('Sürücü rejiminə keç'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
                 value: 'logout',
                 child: Row(
                   children: [
@@ -606,238 +596,331 @@ class _CitizenHomeViewState extends State<CitizenHomeView> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // 1. Live Map of Baku with Problem Markers
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _userPosition,
-              initialZoom: 14.5,
-              minZoom: 11.0,
-              maxZoom: 18.0,
-              onTap: (tapPosition, point) {
-                if (_selectedReportOnMap != null) {
-                  setState(() => _selectedReportOnMap = null);
-                }
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.smartline.app',
-              ),
-              MarkerLayer(markers: markers),
-            ],
-          ),
-
-          // 2. Top Location Bar & Active Issues Pill
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 12,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.my_location_rounded, color: AppColors.primary, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Cari Məkanınız',
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textMuted),
-                                ),
-                                Text(
-                                  _userAddress,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textDark,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: _isLoadingLocation
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                                  )
-                                : const Icon(Icons.refresh_rounded, color: AppColors.primary, size: 20),
-                            onPressed: _fetchLocation,
-                          ),
-                        ],
-                      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 1. Network / AI Status Pill
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: NetworkService.instance.isConnected
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: NetworkService.instance.isConnected
+                          ? const Color(0xFFA5D6A7)
+                          : const Color(0xFFFDE68A),
                     ),
-                    const SizedBox(height: 8),
-
-                    // Quick chip showing past reports status
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const ReportsHistoryView()),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: activeCount > 0 ? AppColors.warning : AppColors.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              activeCount > 0
-                                  ? '$activeCount aktiv problem baxılır • Tarixçəyə bax'
-                                  : 'Bütün müraciətlər həll olunub • Tarixçəyə bax',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textDark,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: Colors.grey),
-                          ],
+                          color: NetworkService.instance.isConnected
+                              ? const Color(0xFF28A745)
+                              : const Color(0xFFD97706),
+                          shape: BoxShape.circle,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        NetworkService.instance.isConnected
+                            ? 'Şəbəkə aktivdir • AI Təhlil hazır'
+                            : 'Oflayn rejim • Müraciətlər telefonda saxlanır',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: NetworkService.instance.isConnected
+                              ? const Color(0xFF1E7E34)
+                              : const Color(0xFF92400E),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-          ),
 
-          // 3. Floating Re-Center Button
-          Positioned(
-            right: 16,
-            bottom: 120,
-            child: FloatingActionButton.small(
-              heroTag: 'recenter_gps',
-              backgroundColor: Colors.white,
-              foregroundColor: AppColors.primary,
-              onPressed: () {
-                _mapController.move(_userPosition, 15.0);
-              },
-              child: const Icon(Icons.gps_fixed_rounded),
-            ),
-          ),
+                const SizedBox(height: 16),
 
-          // 4. THE PROMINENT "+" BUTTON WITH "Problemi bildir" TEXT!
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.96),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 20,
-                    offset: const Offset(0, -4),
+                // 2. Current GPS Location Pill
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Prominent Large Button: + Problemi bildir
-                  GestureDetector(
-                    onTap: _openProblemPicker,
-                    child: Container(
-                      width: double.infinity,
-                      height: 58,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF28A745), Color(0xFF1E7E34)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 18),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _userAddress,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textDark,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.35),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.add_circle_rounded,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                          SizedBox(width: 10),
-                          Text(
-                            '+ Problemi bildir',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _fetchLocation,
+                        child: _isLoadingLocation
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                              )
+                            : const Icon(Icons.refresh_rounded, size: 16, color: AppColors.primary),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 36),
+
+                // 3. Central Title: "Problemi bildir"
+                const Text(
+                  'Problemi bildir',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Ətrafınızdakı zibil, su, işıq, yol və ya digər kommunal nasazlığı bildirmək üçün düyməyə toxunun',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64748B),
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 36),
+
+                // 4. THE PROMINENT GREEN CIRCULAR BUTTON IN THE CENTER WITH WHITE "+"
+                GestureDetector(
+                  onTap: _openProblemPicker,
+                  child: Container(
+                    width: 130,
+                    height: 130,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        colors: [
+                          Color(0xFF28A745),
+                          Color(0xFF1E7E34),
                         ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF28A745).withValues(alpha: 0.38),
+                          blurRadius: 30,
+                          spreadRadius: 4,
+                          offset: const Offset(0, 12),
+                        ),
+                        BoxShadow(
+                          color: const Color(0xFF28A745).withValues(alpha: 0.16),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
+                        child: const Icon(
+                          Icons.add_rounded,
+                          size: 54,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Şəkil, səs və ya mətnlə problemi bildirin, süni intellekt təyin etsin',
-                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
-                    textAlign: TextAlign.center,
+                ),
+
+                const SizedBox(height: 48),
+
+                // 5. Past Reports Quick Access Card
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ReportsHistoryView()),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(18),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.history_rounded,
+                            color: Color(0xFF28A745),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Müraciətlərim və Statuslar',
+                                style: TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                allReports.isEmpty
+                                    ? 'Hələ müraciətiniz yoxdur'
+                                    : (activeCount > 0
+                                        ? '$activeCount aktiv problem baxılır • Tarixçə'
+                                        : '${allReports.length} müraciət qeydə alınıb • Həll olunub'),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 14,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // 6. View City Map Card
+                InkWell(
+                  onTap: () => _openMapSheet(),
+                  borderRadius: BorderRadius.circular(18),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.map_rounded,
+                            color: AppColors.truckBlue,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Canlı Bakı Xəritəsi',
+                                style: TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Problemləri və məkanınızı xəritədə işarələnmiş görün',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 14,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

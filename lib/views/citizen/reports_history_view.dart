@@ -13,7 +13,7 @@ class ReportsHistoryView extends StatefulWidget {
 }
 
 class _ReportsHistoryViewState extends State<ReportsHistoryView> {
-  String _filter = 'all'; // 'all', 'resolved', 'active'
+  String _filter = 'all'; // 'all', 'pending', 'sent', 'resolved', 'unresolved'
 
   void _showReportDetail(BuildContext context, ProblemReport report) {
     showModalBottomSheet(
@@ -21,7 +21,7 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => FractionallySizedBox(
-        heightFactor: 0.88,
+        heightFactor: 0.90,
         child: Container(
           decoration: const BoxDecoration(
             color: Colors.white,
@@ -44,37 +44,11 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                 child: ListView(
                   padding: const EdgeInsets.all(22),
                   children: [
-                    // Top Bar with Resolution Badge
+                    // Top Bar with Status Badge
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: report.isResolved
-                                ? AppColors.primary.withValues(alpha: 0.15)
-                                : AppColors.warning.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                report.isResolved ? Icons.check_circle_rounded : Icons.pending_rounded,
-                                size: 16,
-                                color: report.isResolved ? AppColors.primary : AppColors.warning,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                report.isResolved ? 'HƏLL OLUNDU' : 'HƏLL OLUNMAYIB (AKTİV)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: report.isResolved ? AppColors.primary : AppColors.warning,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        _buildStatusBadge(report.status),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, color: Colors.grey),
                           onPressed: () => Navigator.pop(ctx),
@@ -92,12 +66,51 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Müraciət №: ${report.id} • ${DateFormat('dd MMM yyyy, HH:mm').format(report.timestamp)}',
+                      'Müraciət №: ${report.id}',
                       style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                     ),
                     const Divider(height: 24),
 
-                    // Stage Progress Timeline (Hansı aşamada olduğu)
+                    // Emergency Banner if applicable
+                    if (report.urgency == ReportUrgency.emergency) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.emergency_rounded, color: Color(0xFFDC2626), size: 28),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'TƏCİLİ TƏHLÜKƏLİ VƏZİYYƏT',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFDC2626),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Qaynar Xətt: ${report.emergencyContact ?? "112"} ilə təcili əlaqə saxlayın.',
+                                    style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+
+                    // Stage Progress Timeline
                     const Text(
                       'İCRA MƏRHƏLƏSİ / AŞAMA:',
                       style: TextStyle(
@@ -137,7 +150,9 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                               ),
                               const Spacer(),
                               Text(
-                                '${(report.aiConfidence * 100).toInt()}% uyğunluq',
+                                report.aiConfidence > 0
+                                    ? '${(report.aiConfidence * 100).toInt()}% uyğunluq'
+                                    : 'Gözləmədə',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -165,12 +180,28 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Location
+                    // Original Timestamp
+                    _detailTile(
+                      icon: Icons.access_time_filled_rounded,
+                      color: Colors.deepPurple,
+                      title: 'ORİJİNAL Qeydiyyat Vaxtı',
+                      value: DateFormat('dd MMMM yyyy, HH:mm:ss').format(report.timestamp) +
+                          (report.sentAt != null
+                              ? '\n(Serverə çatdırıldı: ${DateFormat('dd.MM.yyyy HH:mm:ss').format(report.sentAt!)})'
+                              : '\n(Lokal növbədə saxlanılıb, internet gözlənilir)'),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Original Location
                     _detailTile(
                       icon: Icons.location_on_rounded,
                       color: AppColors.critical,
-                      title: 'Məkan və Xəritə Koordinatı',
-                      value: '${report.address}\n(${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)})',
+                      title: 'ORİJİNAL Məkan və GPS Koordinatları',
+                      value: [
+                        '${report.address}\nKoordinatlar: (${report.latitude.toStringAsFixed(5)}, ${report.longitude.toStringAsFixed(5)})',
+                        if (report.locationAccuracy != null) 'GPS Dəqiqlik: ±${report.locationAccuracy!.toStringAsFixed(1)} m',
+                        if (report.isLastKnownLocation) 'Qeyd: Ən son məlum koordinat istifadə edilib',
+                      ].join('\n'),
                     ),
                     const SizedBox(height: 12),
 
@@ -205,31 +236,28 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Interactive Status Switcher (for demoing resolve/inProgress)
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        final newStatus = report.isResolved ? ReportStatus.inProgress : ReportStatus.resolved;
-                        final newStage = report.isResolved ? ReportStage.inProgress : ReportStage.resolved;
-                        Provider.of<ReportsProvider>(context, listen: false)
-                            .updateReportStatus(report.id, newStatus, newStage);
-                        Navigator.pop(ctx);
-                      },
-                      icon: Icon(
-                        report.isResolved ? Icons.replay_rounded : Icons.check_circle_outline_rounded,
-                        color: report.isResolved ? AppColors.warning : AppColors.primary,
-                      ),
-                      label: Text(
-                        report.isResolved ? 'Statusu "İcrada" olaraq dəyiş' : 'Statusu "Həll olundu" olaraq qeyd et',
-                        style: TextStyle(
-                          color: report.isResolved ? AppColors.warning : AppColors.primary,
-                          fontWeight: FontWeight.bold,
+                    // Delete Report Button in Detail Modal
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _confirmDeleteReport(context, report);
+                        },
+                        icon: const Icon(Icons.delete_outline_rounded, color: AppColors.critical, size: 20),
+                        label: const Text(
+                          'Müraciəti sil',
+                          style: TextStyle(
+                            color: AppColors.critical,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: report.isResolved ? AppColors.warning : AppColors.primary,
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.critical, width: 1.2),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ],
@@ -242,11 +270,70 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
     );
   }
 
+  Widget _buildStatusBadge(ReportStatus status) {
+    Color bg;
+    Color fg;
+    IconData icon;
+    String text;
+
+    switch (status) {
+      case ReportStatus.pending:
+        bg = AppColors.warning.withValues(alpha: 0.15);
+        fg = Colors.orange.shade800;
+        icon = Icons.schedule_rounded;
+        text = 'Gözləyir (Oflayn)';
+        break;
+      case ReportStatus.sent:
+        bg = AppColors.truckBlue.withValues(alpha: 0.15);
+        fg = AppColors.truckBlue;
+        icon = Icons.mark_email_read_rounded;
+        text = 'Göndərildi';
+        break;
+      case ReportStatus.inProgress:
+        bg = Colors.blue.withValues(alpha: 0.15);
+        fg = Colors.blue.shade700;
+        icon = Icons.engineering_rounded;
+        text = 'İcrada';
+        break;
+      case ReportStatus.resolved:
+        bg = AppColors.primary.withValues(alpha: 0.15);
+        fg = AppColors.primary;
+        icon = Icons.check_circle_rounded;
+        text = 'Həll olundu';
+        break;
+      case ReportStatus.unresolved:
+        bg = Colors.red.withValues(alpha: 0.15);
+        fg = Colors.red.shade700;
+        icon = Icons.cancel_rounded;
+        text = 'Həll olunmadı';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: fg),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStageStepper(ProblemReport report) {
     final stages = [
-      {'stage': ReportStage.received, 'title': 'Qəbul edildi', 'sub': 'Müraciət qeydə alındı'},
-      {'stage': ReportStage.classified, 'title': 'AI Təhlili & Yönləndirmə', 'sub': 'Quruma göndərildi'},
-      {'stage': ReportStage.inProgress, 'title': 'İcrada', 'sub': 'Briqada əraziyə cəlb olunub'},
+      {'stage': ReportStage.received, 'title': 'Qəbul edildi', 'sub': 'Sistemə daxil oldu'},
+      {'stage': ReportStage.classified, 'title': 'AI Təhlil & Yönləndirmə', 'sub': 'Quruma çatdırıldı'},
+      {'stage': ReportStage.inProgress, 'title': 'İcrada', 'sub': 'Briqada ərazidədir'},
       {'stage': ReportStage.resolved, 'title': 'Həll olundu', 'sub': 'İşlər tamamlandı'},
     ];
 
@@ -255,8 +342,10 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
       currentIndex = 3;
     } else if (report.status == ReportStatus.inProgress) {
       currentIndex = 2;
-    } else {
+    } else if (report.status == ReportStatus.sent) {
       currentIndex = 1;
+    } else {
+      currentIndex = 0;
     }
 
     return Column(
@@ -271,25 +360,25 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
             Column(
               children: [
                 Container(
-                  width: 28,
-                  height: 28,
+                  width: 26,
+                  height: 26,
                   decoration: BoxDecoration(
                     color: isDone ? (report.isResolved && index == 3 ? AppColors.primary : AppColors.truckBlue) : Colors.grey.shade200,
                     shape: BoxShape.circle,
                   ),
                   child: Center(
                     child: isDone
-                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 15)
                         : Text(
                             '${index + 1}',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
                           ),
                   ),
                 ),
                 if (index < stages.length - 1)
                   Container(
                     width: 2,
-                    height: 24,
+                    height: 22,
                     color: index < currentIndex ? AppColors.truckBlue : Colors.grey.shade200,
                   ),
               ],
@@ -302,7 +391,7 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                   Text(
                     item['title'] as String,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12.5,
                       fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
                       color: isDone ? AppColors.textDark : AppColors.textMuted,
                     ),
@@ -367,19 +456,100 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
     );
   }
 
+  Future<bool> _confirmDeleteReport(BuildContext context, ProblemReport report) async {
+    final bool? shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dlgContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, color: AppColors.critical, size: 28),
+            SizedBox(width: 10),
+            Text(
+              'Müraciəti sil',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Bu müraciəti silmək istədiyinizdən əminsiniz?',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textDark),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '«${report.title}» (${report.id}) müraciəti tarixçədən həmişəlik silinəcək.',
+              style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.35),
+            ),
+          ],
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dlgContext, false),
+            child: const Text(
+              'Ləğv et',
+              style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dlgContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.critical,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text(
+              'Bəli, sil',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete == true) {
+      if (context.mounted) {
+        final reportsProvider = Provider.of<ReportsProvider>(context, listen: false);
+        await reportsProvider.deleteReport(report.id);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('«${report.id}» nömrəli müraciət uğurla silindi.'),
+              backgroundColor: AppColors.textDark,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final reportsProvider = Provider.of<ReportsProvider>(context);
     final allReports = reportsProvider.reports;
 
     final filteredReports = allReports.where((r) {
-      if (_filter == 'resolved') return r.isResolved;
-      if (_filter == 'active') return !r.isResolved;
+      if (_filter == 'pending') return r.status == ReportStatus.pending;
+      if (_filter == 'sent') return r.status == ReportStatus.sent || r.status == ReportStatus.inProgress;
+      if (_filter == 'resolved') return r.status == ReportStatus.resolved;
+      if (_filter == 'unresolved') return r.status == ReportStatus.unresolved;
       return true;
     }).toList();
 
-    final resolvedCount = allReports.where((r) => r.isResolved).length;
-    final activeCount = allReports.where((r) => !r.isResolved).length;
+    final pendingCount = allReports.where((r) => r.status == ReportStatus.pending).length;
+    final sentCount = allReports.where((r) => r.status == ReportStatus.sent || r.status == ReportStatus.inProgress).length;
+    final resolvedCount = allReports.where((r) => r.status == ReportStatus.resolved).length;
+    final unresolvedCount = allReports.where((r) => r.status == ReportStatus.unresolved).length;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -396,7 +566,7 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
       ),
       body: Column(
         children: [
-          // Filter Chips (Hamısı, Həll olunub, Həll olunmayıb)
+          // Filter Chips (Hamısı, Gözləyir, Göndərildi, Həll olundu, Həll olunmadı)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -404,9 +574,15 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
               children: [
                 _filterChip('Hamısı (${allReports.length})', 'all'),
                 const SizedBox(width: 8),
-                _filterChip('Həll olunmayıb ($activeCount)', 'active'),
+                _filterChip('Gözləyir ($pendingCount)', 'pending'),
+                const SizedBox(width: 8),
+                _filterChip('Göndərildi ($sentCount)', 'sent'),
                 const SizedBox(width: 8),
                 _filterChip('Həll olundu ($resolvedCount)', 'resolved'),
+                if (unresolvedCount > 0) ...[
+                  const SizedBox(width: 8),
+                  _filterChip('Həll olunmadı ($unresolvedCount)', 'unresolved'),
+                ],
               ],
             ),
           ),
@@ -433,152 +609,173 @@ class _ReportsHistoryViewState extends State<ReportsHistoryView> {
                     itemBuilder: (ctx, index) {
                       final item = filteredReports[index];
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: item.isResolved
-                                ? AppColors.primary.withValues(alpha: 0.25)
-                                : Colors.grey.withValues(alpha: 0.2),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.02),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
+                      return Dismissible(
+                        key: ValueKey('report_${item.id}'),
+                        direction: DismissDirection.endToStart,
+                        confirmDismiss: (_) => _confirmDeleteReport(context, item),
+                        background: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.critical,
                             borderRadius: BorderRadius.circular(18),
-                            onTap: () => _showReportDetail(context, item),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Top row: ID and Resolution Badge
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(item.inputType.icon, size: 16, color: AppColors.primary),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            item.id,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.textMuted,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-
-                                      // Clearly shows "problemin həll olub-olmadığı"
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: item.isResolved
-                                              ? AppColors.primary.withValues(alpha: 0.12)
-                                              : AppColors.warning.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
+                          ),
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Sil',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(Icons.delete_outline_rounded, color: Colors.white, size: 24),
+                            ],
+                          ),
+                        ),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: item.isResolved
+                                  ? AppColors.primary.withValues(alpha: 0.25)
+                                  : (item.status == ReportStatus.pending
+                                      ? Colors.orange.withValues(alpha: 0.3)
+                                      : Colors.grey.withValues(alpha: 0.2)),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(18),
+                              onTap: () => _showReportDetail(context, item),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Top row: ID and Status Badge + Delete Button
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
                                           children: [
-                                            Icon(
-                                              item.isResolved
-                                                  ? Icons.check_circle_rounded
-                                                  : Icons.hourglass_top_rounded,
-                                              size: 13,
-                                              color: item.isResolved ? AppColors.primary : AppColors.warning,
-                                            ),
-                                            const SizedBox(width: 4),
+                                            Icon(item.inputType.icon, size: 16, color: AppColors.primary),
+                                            const SizedBox(width: 6),
                                             Text(
-                                              item.isResolved ? 'Həll olundu' : 'Həll olunmayıb',
-                                              style: TextStyle(
-                                                fontSize: 11,
+                                              item.id,
+                                              style: const TextStyle(
+                                                fontSize: 12,
                                                 fontWeight: FontWeight.bold,
-                                                color: item.isResolved ? AppColors.primary : AppColors.warning,
+                                                color: AppColors.textMuted,
                                               ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-
-                                  // Title
-                                  Text(
-                                    item.title,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.textDark,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-
-                                  // Stage info (Hansı aşamada olduğu)
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.tune_rounded, size: 14, color: AppColors.truckBlue),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Aşama: ${item.currentStage.label}',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.truckBlue,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-
-                                  // Address & Department
-                                  Text(
-                                    '${item.targetDepartment} • ${item.address}',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.textMuted,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 10),
-
-                                  // Bottom Row: Date & Action
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        DateFormat('dd.MM.yyyy HH:mm').format(item.timestamp),
-                                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                      ),
-                                      const Row(
-                                        children: [
-                                          Text(
-                                            'Ətraflı & Xəritə',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.primary,
+                                        Row(
+                                          children: [
+                                            _buildStatusBadge(item.status),
+                                            const SizedBox(width: 8),
+                                            InkWell(
+                                              onTap: () => _confirmDeleteReport(context, item),
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(6),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.red.withValues(alpha: 0.08),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  size: 18,
+                                                  color: AppColors.critical,
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                          Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.primary),
-                                        ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+
+                                    // Title
+                                    Text(
+                                      item.title,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textDark,
                                       ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                    const SizedBox(height: 4),
+
+                                    // Stage info
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.tune_rounded, size: 14, color: AppColors.truckBlue),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Aşama: ${item.currentStage.label}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.truckBlue,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+
+                                    // Address & Department
+                                    Text(
+                                      '${item.targetDepartment} • ${item.address}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textMuted,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 10),
+
+                                    // Bottom Row: Date & Action
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          DateFormat('dd.MM.yyyy HH:mm').format(item.timestamp),
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                        ),
+                                        const Row(
+                                          children: [
+                                            Text(
+                                              'Ətraflı & Xəritə',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                            Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.primary),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

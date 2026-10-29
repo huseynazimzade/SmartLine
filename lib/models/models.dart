@@ -4,8 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../theme/app_theme.dart';
 
 enum UserRole {
-  citizen('Sakin', Icons.person_rounded),
-  driver('Zibil maşını sürücüsü', Icons.local_shipping_rounded);
+  citizen('Sakin', Icons.person_rounded);
 
   final String label;
   final IconData icon;
@@ -13,11 +12,6 @@ enum UserRole {
   const UserRole(this.label, this.icon);
 
   static UserRole fromString(String val) {
-    if (val.toLowerCase().contains('surucu') ||
-        val.toLowerCase().contains('driver') ||
-        val.toLowerCase().contains('zibil')) {
-      return UserRole.driver;
-    }
     return UserRole.citizen;
   }
 }
@@ -54,9 +48,11 @@ enum ReportStage {
 }
 
 enum ReportStatus {
-  pending('Baxılır', AppColors.warning),
-  inProgress('İcrada', AppColors.truckBlue),
-  resolved('Həll olundu', AppColors.primary);
+  pending('Gözləyir', AppColors.warning),
+  sent('Göndərildi', AppColors.truckBlue),
+  inProgress('İcrada', Color(0xFF2563EB)),
+  resolved('Həll olundu', AppColors.primary),
+  unresolved('Həll olunmadı', Color(0xFFE11D48));
 
   final String label;
   final Color color;
@@ -64,17 +60,27 @@ enum ReportStatus {
   const ReportStatus(this.label, this.color);
 
   bool get isResolved => this == ReportStatus.resolved;
+  bool get isPending => this == ReportStatus.pending;
+  bool get isSent => this == ReportStatus.sent;
 
   static ReportStatus fromString(String val) {
     switch (val) {
+      case 'sent':
+      case 'Göndərildi':
+        return ReportStatus.sent;
       case 'inProgress':
       case 'İcrada':
         return ReportStatus.inProgress;
       case 'resolved':
       case 'Həll olundu':
         return ReportStatus.resolved;
+      case 'unresolved':
+      case 'Həll olunmadı':
+        return ReportStatus.unresolved;
       case 'pending':
       case 'Baxılır':
+      case 'Gözləyir':
+      case 'Göndərilməyi gözləyir':
       default:
         return ReportStatus.pending;
     }
@@ -84,23 +90,33 @@ enum ReportStatus {
 enum ReportUrgency {
   low('Normal', AppColors.airGreen),
   medium('Orta', AppColors.warning),
-  high('Təcili / Yüksək', AppColors.critical);
+  high('Yüksək', AppColors.critical),
+  emergency('Təcili / Qəza', Color(0xFFDC2626));
 
   final String label;
   final Color color;
 
   const ReportUrgency(this.label, this.color);
 
+  bool get isEmergency => this == ReportUrgency.emergency;
+
   static ReportUrgency fromString(String val) {
-    switch (val) {
+    switch (val.toLowerCase()) {
+      case 'emergency':
+      case 'təcili':
+      case 'təcili / qəza':
+      case 'qəza':
+        return ReportUrgency.emergency;
       case 'high':
-      case 'Təcili / Yüksək':
+      case 'yüksək':
+      case 'təcili / yüksək':
         return ReportUrgency.high;
       case 'medium':
-      case 'Orta':
+      case 'orta':
         return ReportUrgency.medium;
       case 'low':
-      case 'Normal':
+      case 'normal':
+      case 'aşağı':
       default:
         return ReportUrgency.low;
     }
@@ -114,17 +130,21 @@ class ProblemReport {
   final ReportInputType inputType;
   final String? photoPath;
   final String? voiceAudioPath;
-  final String detectedProblem;
-  final double aiConfidence;
-  final String aiCategory;
-  final String targetDepartment;
-  final ReportUrgency urgency;
+  String detectedProblem;
+  double aiConfidence;
+  String aiCategory;
+  String targetDepartment;
+  ReportUrgency urgency;
   ReportStatus status;
   ReportStage currentStage;
   final String address;
   final double latitude;
   final double longitude;
   final DateTime timestamp;
+  final double? locationAccuracy;
+  final bool isLastKnownLocation;
+  final String? emergencyContact;
+  DateTime? sentAt;
   DateTime? resolvedAt;
 
   ProblemReport({
@@ -145,6 +165,10 @@ class ProblemReport {
     required this.latitude,
     required this.longitude,
     DateTime? timestamp,
+    this.locationAccuracy,
+    this.isLastKnownLocation = false,
+    this.emergencyContact,
+    this.sentAt,
     this.resolvedAt,
   })  : id = id ?? 'SL-${DateTime.now().year}-${1000 + const Uuid().v4().hashCode.abs() % 9000}',
         timestamp = timestamp ?? DateTime.now();
@@ -152,8 +176,22 @@ class ProblemReport {
   LatLng get coordinate => LatLng(latitude, longitude);
 
   bool get isResolved => status == ReportStatus.resolved;
+  bool get isPendingOffline => status == ReportStatus.pending;
 
-  String get resolutionStatusText => isResolved ? 'Həll olundu' : 'Həll olunmayıb (Aktiv)';
+  String get resolutionStatusText {
+    switch (status) {
+      case ReportStatus.resolved:
+        return 'Həll olundu';
+      case ReportStatus.unresolved:
+        return 'Həll olunmadı';
+      case ReportStatus.pending:
+        return 'Gözləyir (Offline saxlandı)';
+      case ReportStatus.sent:
+        return 'Göndərildi (İcrada)';
+      case ReportStatus.inProgress:
+        return 'İcrada';
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -173,6 +211,10 @@ class ProblemReport {
         'latitude': latitude,
         'longitude': longitude,
         'timestamp': timestamp.toIso8601String(),
+        'locationAccuracy': locationAccuracy,
+        'isLastKnownLocation': isLastKnownLocation,
+        'emergencyContact': emergencyContact,
+        'sentAt': sentAt?.toIso8601String(),
         'resolvedAt': resolvedAt?.toIso8601String(),
       };
 
@@ -196,6 +238,10 @@ class ProblemReport {
         latitude: (json['latitude'] as num?)?.toDouble() ?? 40.37767,
         longitude: (json['longitude'] as num?)?.toDouble() ?? 49.84508,
         timestamp: DateTime.parse(json['timestamp'] as String),
+        locationAccuracy: (json['locationAccuracy'] as num?)?.toDouble(),
+        isLastKnownLocation: json['isLastKnownLocation'] as bool? ?? false,
+        emergencyContact: json['emergencyContact'] as String?,
+        sentAt: json['sentAt'] != null ? DateTime.parse(json['sentAt'] as String) : null,
         resolvedAt: json['resolvedAt'] != null ? DateTime.parse(json['resolvedAt'] as String) : null,
       );
 }
@@ -206,7 +252,6 @@ class User {
   final bool isAuthenticated;
   final String username;
   final UserRole role;
-  final String? assignedTruckId;
 
   User({
     String? id,
@@ -214,9 +259,8 @@ class User {
     this.isAuthenticated = true,
     String? username,
     this.role = UserRole.citizen,
-    this.assignedTruckId,
   })  : id = id ?? const Uuid().v4(),
-        username = username ?? (role == UserRole.driver ? 'Eko Sürücü' : 'Hörmətli Sakin');
+        username = username ?? 'Hörmətli Sakin';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -224,7 +268,6 @@ class User {
         'isAuthenticated': isAuthenticated,
         'username': username,
         'role': role.name,
-        'assignedTruckId': assignedTruckId,
       };
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -233,139 +276,5 @@ class User {
         isAuthenticated: json['isAuthenticated'] as bool? ?? true,
         username: json['username'] as String?,
         role: UserRole.fromString(json['role'] as String? ?? 'citizen'),
-        assignedTruckId: json['assignedTruckId'] as String?,
       );
-}
-
-// Waste Management Models for Driver Module
-enum BinType {
-  mixed('General Waste', Icons.delete_rounded, '#238B45'),
-  plastic('Plastic/Metal', Icons.local_drink_rounded, '#F59E0B'),
-  clothes('Clothes/Fabric', Icons.checkroom_rounded, '#8B5CF6');
-
-  final String label;
-  final IconData icon;
-  final String hexColor;
-
-  const BinType(this.label, this.icon, this.hexColor);
-
-  Color get color => AppColors.hex(hexColor);
-
-  static BinType fromString(String value) {
-    switch (value) {
-      case 'Plastic/Metal':
-      case 'plastic':
-        return BinType.plastic;
-      case 'Clothes/Fabric':
-      case 'clothes':
-        return BinType.clothes;
-      case 'General Waste':
-      case 'mixed':
-      default:
-        return BinType.mixed;
-    }
-  }
-}
-
-class WasteBin {
-  final String id;
-  final BinType type;
-  double fillLevel;
-  double temperature;
-  double humidity;
-  double airQuality;
-  DateTime lastEmptied;
-
-  WasteBin({
-    String? id,
-    required this.type,
-    required this.fillLevel,
-    required this.temperature,
-    required this.humidity,
-    required this.airQuality,
-    required this.lastEmptied,
-  }) : id = id ?? const Uuid().v4();
-
-  Color get statusColor {
-    if (fillLevel > 0.85) return AppColors.critical;
-    if (fillLevel > 0.6) return AppColors.warning;
-    return AppColors.primary;
-  }
-
-  Color get tempColor {
-    if (temperature > 40) return AppColors.critical;
-    if (temperature > 30) return AppColors.warning;
-    return AppColors.airGreen;
-  }
-
-  Color get humidityColor {
-    if (humidity > 70) return AppColors.critical;
-    return AppColors.humidityBlue;
-  }
-
-  Color get aqiColor {
-    if (airQuality > 100) return AppColors.critical;
-    if (airQuality > 50) return AppColors.warning;
-    return AppColors.airGreen;
-  }
-}
-
-class BinCluster {
-  final String id;
-  final String name;
-  final String address;
-  final double latitude;
-  final double longitude;
-  final List<WasteBin> bins;
-
-  BinCluster({
-    String? id,
-    required this.name,
-    required this.address,
-    required this.latitude,
-    required this.longitude,
-    required this.bins,
-  }) : id = id ?? const Uuid().v4();
-
-  LatLng get coordinate => LatLng(latitude, longitude);
-
-  double get avgFillLevel {
-    if (bins.isEmpty) return 0.0;
-    final total = bins.fold<double>(0.0, (sum, bin) => sum + bin.fillLevel);
-    return total / bins.length;
-  }
-
-  Color get statusColor {
-    final avg = avgFillLevel;
-    if (avg > 0.8) return AppColors.critical;
-    if (avg > 0.5) return AppColors.warning;
-    return AppColors.primary;
-  }
-}
-
-class CollectionTruck {
-  final String id;
-  double latitude;
-  double longitude;
-  String status;
-  double capacity;
-  String? targetClusterId;
-  List<LatLng> routePoints;
-  int currentPointIndex;
-  LatLng? lastRequestedTarget;
-
-  CollectionTruck({
-    String? id,
-    required this.latitude,
-    required this.longitude,
-    required this.status,
-    required this.capacity,
-    this.targetClusterId,
-    List<LatLng>? routePoints,
-    this.currentPointIndex = 0,
-    this.lastRequestedTarget,
-  })  : id = id ?? const Uuid().v4(),
-        routePoints = routePoints ?? [];
-
-  LatLng get coordinate => LatLng(latitude, longitude);
 }

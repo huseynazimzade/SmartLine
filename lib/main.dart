@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/reports_provider.dart';
-import 'providers/waste_provider.dart';
+import 'services/network_service.dart';
+import 'services/offline_queue_service.dart';
 import 'theme/app_theme.dart';
 import 'views/root_view.dart';
 
@@ -16,6 +17,9 @@ void main() {
     ),
   );
 
+  // Initialize network listener
+  NetworkService.instance.init();
+
   runApp(const SmartLineApp());
 }
 
@@ -27,8 +31,13 @@ class SmartLineApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => WasteProvider()),
-        ChangeNotifierProvider(create: (_) => ReportsProvider()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final reportsProvider = ReportsProvider();
+            OfflineQueueService.instance.init(reportsProvider);
+            return reportsProvider;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'SmartLine',

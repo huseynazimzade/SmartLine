@@ -41,3 +41,37 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.env
+*.private
+*.key
+*.pem
+*.pfx
+
+# Android Secrets, Credentials & Keystores
+**/android/local.properties
+**/android/key.properties
+**/*.keystore
+**/*.jks
+**/google-services.json
+
+# iOS & macOS Credentials
+**/ios/**/GoogleService-Info.plist
+**/macos/**/GoogleService-Info.plist
+*.mobileprovision
+
+# Visual Studio Code & Editors
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System Files
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
